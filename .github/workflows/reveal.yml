@@ -2,21 +2,20 @@ name: Reveal Zoom link
 
 on:
   schedule:
-    - cron: "*/5 * * * *" # runs every 5 minutes
-  workflow_dispatch: # also allows manual runs
+    - cron: "*/15 * * * *"
+  repository_dispatch:
+    types: [reveal-link]
+  workflow_dispatch:
 
 jobs:
   reveal:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-
       - run: npm install
-
       - run: node reveal.js
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
