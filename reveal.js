@@ -5,7 +5,7 @@ const privateDatabaseId = process.env.NOTION_PRIVATE_DATABASE_ID;
 const publicDatabaseId = process.env.NOTION_PUBLIC_DATABASE_ID;
 
 // Adjust these to match the actual column names in both databases
-const DATE_TIME_PROPERTY = "Uhrzeit in Berlin";              // exists in both databases
+const DATE_TIME_PROPERTY = "Uhrzeit bei dir";              // exists in both databases
 const HIDDEN_LINK_PROPERTY = "link-zum-call-hidden"; // private database only
 const VISIBLE_LINK_PROPERTY = "Link zum Call";       // public database only
 
