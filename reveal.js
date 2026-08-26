@@ -12,6 +12,8 @@ const VISIBLE_LINK_PROPERTY = "Link zum Call";       // public database only
 const MINUTES_BEFORE = 30;
 const MINUTES_AFTER_CLEANUP = 120;
 
+const CLEANUP_TEXT = "Call beendet";
+
 function getUrlOrText(prop) {
   if (!prop) return "";
   if (prop.type === "url") return prop.url || "";
@@ -101,7 +103,7 @@ async function run() {
       await notion.pages.update({
         page_id: publicPage.id,
         properties: {
-          [VISIBLE_LINK_PROPERTY]: buildPropValue(visibleLinkType, ""),
+          [VISIBLE_LINK_PROPERTY]: buildPropValue(visibleLinkType, CLEANUP_TEXT),
         },
       });
     }
