@@ -1,15 +1,16 @@
 import { Client } from "@notionhq/client";
 
 const notion = new Client({ auth: process.env.NOTION_TOKEN });
-const databaseId = process.env.NOTION_DATABASE_ID;
+const privateDatabaseId = process.env.NOTION_PRIVATE_DATABASE_ID;
+const publicDatabaseId = process.env.NOTION_PUBLIC_DATABASE_ID;
 
-// Adjust these names to match your Notion database columns EXACTLY
-const DATE_TIME_PROPERTY = "date-hour";      // Date-type property
-const HIDDEN_LINK_PROPERTY = "call-url-hidden";  // URL or Text-type property
-const VISIBLE_LINK_PROPERTY = "call-url"; // URL or Text-type property
+// Adjust these to match the actual column names in both databases
+const DATE_TIME_PROPERTY = "Uhrzeit in Berlin";              // exists in both databases
+const HIDDEN_LINK_PROPERTY = "link-zum-call-hidden"; // private database only
+const VISIBLE_LINK_PROPERTY = "Link zum Call";       // public database only
 
-const MINUTES_BEFORE = 10;      // reveals the link X minutes before
-const MINUTES_AFTER_CLEANUP = 120; // hides it again X minutes after the start (optional)
+const MINUTES_BEFORE = 30;
+const MINUTES_AFTER_CLEANUP = 120;
 
 function getUrlOrText(prop) {
   if (!prop) return "";
@@ -23,47 +24,82 @@ function buildPropValue(type, value) {
   return { rich_text: value ? [{ text: { content: value } }] : [] };
 }
 
+function getPageTitle(page) {
+  const titleProp = Object.values(page.properties).find((p) => p.type === "title");
+  return titleProp?.title?.[0]?.plain_text?.trim() || "";
+}
+
+// Unique key used to match rows between the two databases
+function matchKey(title, dateTimeIso) {
+  return `${title}__${dateTimeIso}`;
+}
+
+async function fetchAllPages(databaseId) {
+  let results = [];
+  let cursor = undefined;
+  do {
+    const response = await notion.databases.query({
+      database_id: databaseId,
+      start_cursor: cursor,
+    });
+    results = results.concat(response.results);
+    cursor = response.has_more ? response.next_cursor : undefined;
+  } while (cursor);
+  return results;
+}
+
 async function run() {
   const now = new Date();
 
-  const response = await notion.databases.query({
-    database_id: databaseId,
-    filter: {
-      property: DATE_TIME_PROPERTY,
-      date: { is_not_empty: true },
-    },
-  });
+  const [privatePages, publicPages] = await Promise.all([
+    fetchAllPages(privateDatabaseId),
+    fetchAllPages(publicDatabaseId),
+  ]);
 
-  for (const page of response.results) {
-    const props = page.properties;
-    const dateTime = props[DATE_TIME_PROPERTY]?.date?.start;
-    if (!dateTime) continue;
+  // Build an index of the public database by key (title + date/time)
+  const publicByKey = new Map();
+  for (const page of publicPages) {
+    const title = getPageTitle(page);
+    const dateTime = page.properties[DATE_TIME_PROPERTY]?.date?.start;
+    if (!title || !dateTime) continue;
+    publicByKey.set(matchKey(title, dateTime), page);
+  }
+
+  for (const privatePage of privatePages) {
+    const title = getPageTitle(privatePage);
+    const dateTime = privatePage.properties[DATE_TIME_PROPERTY]?.date?.start;
+    if (!title || !dateTime) continue;
+
+    const publicPage = publicByKey.get(matchKey(title, dateTime));
+    if (!publicPage) {
+      console.warn(`No matching row in the public database for: "${title}" (${dateTime})`);
+      continue;
+    }
 
     const eventTime = new Date(dateTime);
     const differenceInMinutes = (eventTime.getTime() - now.getTime()) / 60000;
 
-    const hiddenLink = getUrlOrText(props[HIDDEN_LINK_PROPERTY]);
-    const currentVisibleLink = getUrlOrText(props[VISIBLE_LINK_PROPERTY]);
-    const visibleLinkType = props[VISIBLE_LINK_PROPERTY]?.type || "url";
+    const hiddenLink = getUrlOrText(privatePage.properties[HIDDEN_LINK_PROPERTY]);
+    const currentVisibleLink = getUrlOrText(publicPage.properties[VISIBLE_LINK_PROPERTY]);
+    const visibleLinkType = publicPage.properties[VISIBLE_LINK_PROPERTY]?.type || "url";
 
-    // Reveals the link between MINUTES_BEFORE and the event time
-    const shouldReveal = differenceInMinutes <= MINUTES_BEFORE && differenceInMinutes > -MINUTES_AFTER_CLEANUP;
+    const shouldReveal =
+      differenceInMinutes <= MINUTES_BEFORE && differenceInMinutes > -MINUTES_AFTER_CLEANUP;
 
     if (shouldReveal && hiddenLink && currentVisibleLink !== hiddenLink) {
-      console.log(`Revealing link for event at ${eventTime.toISOString()}`);
+      console.log(`Revealing link for "${title}" at ${eventTime.toISOString()}`);
       await notion.pages.update({
-        page_id: page.id,
+        page_id: publicPage.id,
         properties: {
           [VISIBLE_LINK_PROPERTY]: buildPropValue(visibleLinkType, hiddenLink),
         },
       });
     }
 
-    // Hides it again after the event has passed
     if (differenceInMinutes <= -MINUTES_AFTER_CLEANUP && currentVisibleLink) {
-      console.log(`Cleaning up link for event that has passed (${eventTime.toISOString()})`);
+      console.log(`Clearing link for "${title}" (event has passed)`);
       await notion.pages.update({
-        page_id: page.id,
+        page_id: publicPage.id,
         properties: {
           [VISIBLE_LINK_PROPERTY]: buildPropValue(visibleLinkType, ""),
         },
