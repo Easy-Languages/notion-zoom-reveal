@@ -9,7 +9,7 @@ const DATE_TIME_PROPERTY = "Uhrzeit bei dir";              // exists in both dat
 const HIDDEN_LINK_PROPERTY = "link-zum-call-hidden"; // private database only
 const VISIBLE_LINK_PROPERTY = "Link zum Call";       // public database only
 
-const MINUTES_BEFORE = 30;
+const MINUTES_BEFORE = 15;
 const MINUTES_AFTER_CLEANUP = 120;
 
 const CLEANUP_TEXT = "Call beendet";
