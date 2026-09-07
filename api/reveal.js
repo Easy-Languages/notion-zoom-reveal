@@ -4,14 +4,12 @@ const notion = new Client({ auth: process.env.NOTION_TOKEN });
 const privateDatabaseId = process.env.NOTION_PRIVATE_DATABASE_ID;
 const publicDatabaseId = process.env.NOTION_PUBLIC_DATABASE_ID;
 
-// Adjust these to match the actual column names in both databases
-const DATE_TIME_PROPERTY = "Uhrzeit bei dir";              // exists in both databases
-const HIDDEN_LINK_PROPERTY = "link-zum-call-hidden"; // private database only
-const VISIBLE_LINK_PROPERTY = "Link zum Call";       // public database only
+const DATE_TIME_PROPERTY = "Uhrzeit bei dir";
+const HIDDEN_LINK_PROPERTY = "link-zum-call-hidden";
+const VISIBLE_LINK_PROPERTY = "Link zum Call";
 
 const MINUTES_BEFORE = 15;
 const MINUTES_AFTER_CLEANUP = 120;
-
 const CLEANUP_TEXT = "Call beendet";
 
 function getUrlOrText(prop) {
@@ -31,7 +29,6 @@ function getPageTitle(page) {
   return titleProp?.title?.[0]?.plain_text?.trim() || "";
 }
 
-// Unique key used to match rows between the two databases
 function matchKey(title, dateTimeIso) {
   return `${title}__${dateTimeIso}`;
 }
@@ -58,7 +55,6 @@ async function run() {
     fetchAllPages(publicDatabaseId),
   ]);
 
-  // Build an index of the public database by key (title + date/time)
   const publicByKey = new Map();
   for (const page of publicPages) {
     const title = getPageTitle(page);
@@ -73,10 +69,7 @@ async function run() {
     if (!title || !dateTime) continue;
 
     const publicPage = publicByKey.get(matchKey(title, dateTime));
-    if (!publicPage) {
-      console.warn(`No matching row in the public database for: "${title}" (${dateTime})`);
-      continue;
-    }
+    if (!publicPage) continue;
 
     const eventTime = new Date(dateTime);
     const differenceInMinutes = (eventTime.getTime() - now.getTime()) / 60000;
@@ -89,28 +82,30 @@ async function run() {
       differenceInMinutes <= MINUTES_BEFORE && differenceInMinutes > -MINUTES_AFTER_CLEANUP;
 
     if (shouldReveal && hiddenLink && currentVisibleLink !== hiddenLink) {
-      console.log(`Revealing link for "${title}" at ${eventTime.toISOString()}`);
       await notion.pages.update({
         page_id: publicPage.id,
-        properties: {
-          [VISIBLE_LINK_PROPERTY]: buildPropValue(visibleLinkType, hiddenLink),
-        },
+        properties: { [VISIBLE_LINK_PROPERTY]: buildPropValue(visibleLinkType, hiddenLink) },
       });
     }
 
     if (differenceInMinutes <= -MINUTES_AFTER_CLEANUP && currentVisibleLink) {
-      console.log(`Clearing link for "${title}" (event has passed)`);
       await notion.pages.update({
         page_id: publicPage.id,
-        properties: {
-          [VISIBLE_LINK_PROPERTY]: buildPropValue(visibleLinkType, CLEANUP_TEXT),
-        },
+        properties: { [VISIBLE_LINK_PROPERTY]: buildPropValue(visibleLinkType, CLEANUP_TEXT) },
       });
     }
   }
 }
 
-run().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+export default async function handler(req, res) {
+  if (req.query.secret !== process.env.CRON_SECRET) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  try {
+    await run();
+    res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+}
