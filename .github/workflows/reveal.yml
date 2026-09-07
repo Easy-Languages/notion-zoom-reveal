@@ -1,8 +1,6 @@
 name: Reveal Zoom link
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"
   repository_dispatch:
     types: [reveal-link]
   workflow_dispatch:
